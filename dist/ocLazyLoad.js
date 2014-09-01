@@ -77,7 +77,6 @@
 				};
 
 				broadcast = function broadcast(eventName, params) {
-          console.log(eventName, params);
 					if(events) {
 						$rootScope.$broadcast(eventName, params);
 					}
