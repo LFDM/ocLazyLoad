@@ -7,8 +7,35 @@
  */
 (function() {
 	'use strict';
+
+  function RegInvokes() {
+    var invokes = {};
+    var defaultNamespace = 'default';
+
+    this.isNew = function(namespace, element) {
+      namespace = namespace || defaultNamespace;
+      var ns = invokes[namespace];
+      if (!ns) {
+        return true;
+      } else {
+        return ns.indexOf(element) === -1;
+      }
+    };
+
+    this.push = function(namespace, element) {
+      namespace = namespace || defaultNamespace;
+      var ns = invokes[namespace];
+      if (!ns) ns = invokes[namespace] = [];
+      ns.push(element);
+    };
+
+    this.invokes = function() {
+      return invokes;
+    };
+  }
+
 	var regModules = ['ng'],
-		regInvokes = [],
+		regInvokes = new RegInvokes(),
 		regConfigs = [],
 		ocLazyLoad = angular.module('oc.lazyLoad', ['ng']),
 		broadcast = angular.noop;
@@ -34,7 +61,8 @@
 
 			this.$get = ['$timeout', '$log', '$q', '$templateCache', '$http', '$rootElement', '$rootScope', '$cacheFactory', function($timeout, $log, $q, $templateCache, $http, $rootElement, $rootScope, $cacheFactory) {
 				var instanceInjector,
-					filesCache = $cacheFactory('ocLazyLoad');
+					filesCache = $cacheFactory('ocLazyLoad'),
+          rootId = $rootElement.attr('id');
 
 				if(!debug) {
 					$log = {};
@@ -49,6 +77,7 @@
 				};
 
 				broadcast = function broadcast(eventName, params) {
+          console.log(eventName, params);
 					if(events) {
 						$rootScope.$broadcast(eventName, params);
 					}
@@ -454,7 +483,7 @@
 								moduleCache.push(moduleName);
 								loadDependencies(moduleName).then(function success() {
 									try {
-										register(providers, moduleCache, params);
+										register(providers, moduleCache, params, rootId);
 									} catch(e) {
 										$log.error(e.message);
 										deferred.reject(e);
@@ -640,7 +669,7 @@
 		}
 	}
 
-	function invokeQueue(providers, queue, moduleName, reconfig) {
+	function invokeQueue(providers, queue, moduleName, reconfig, namespace) {
 		if(!queue) {
 			return;
 		}
@@ -656,7 +685,7 @@
 						throw new Error('unsupported provider ' + args[0]);
 					}
 				}
-				var isNew = registerInvokeList(args[2][0]);
+				var isNew = registerInvokeList(namespace, args[2][0]);
 				if(args[1] !== 'invoke') {
 					if(isNew && angular.isDefined(provider)) {
 						provider[args[1]].apply(provider, args[2]);
@@ -693,7 +722,7 @@
 	 * @param registerModules
 	 * @returns {*}
 	 */
-	function register(providers, registerModules, params) {
+	function register(providers, registerModules, params, namespace) {
 		if(registerModules) {
 			var k, moduleName, moduleFn, runBlocks = [];
 			for(k = registerModules.length - 1; k >= 0; k--) {
@@ -707,11 +736,11 @@
 				moduleFn = angular.module(moduleName);
 				if(regModules.indexOf(moduleName) === -1) { // new module
 					regModules.push(moduleName);
-					register(providers, moduleFn.requires, params);
+					register(providers, moduleFn.requires, params, namespace);
 					runBlocks = runBlocks.concat(moduleFn._runBlocks);
 				}
-				invokeQueue(providers, moduleFn._invokeQueue, moduleName, params.reconfig);
-				invokeQueue(providers, moduleFn._configBlocks, moduleName, params.reconfig); // angular 1.3+
+				invokeQueue(providers, moduleFn._invokeQueue, moduleName, params.reconfig, namespace);
+				invokeQueue(providers, moduleFn._configBlocks, moduleName, params.reconfig, namespace); // angular 1.3+
 				broadcast('ocLazyLoad.moduleLoaded', moduleName);
 				registerModules.pop();
 			}
@@ -727,19 +756,19 @@
 	 * @param invokeList
 	 * @returns {*}
 	 */
-	function registerInvokeList(invokeList) {
+	function registerInvokeList(namespace, invokeList) {
 		var newInvoke = false;
 		if(angular.isString(invokeList)) {
-			if(regInvokes.indexOf(invokeList) === -1) {
+			if(regInvokes.isNew(namespace, invokeList)) {
 				newInvoke = true;
-				regInvokes.push(invokeList);
+				regInvokes.push(namespace, invokeList);
 				broadcast('ocLazyLoad.componentLoaded', invokeList);
 			}
 		} else if(angular.isObject(invokeList)) {
 			angular.forEach(invokeList, function(invoke) {
-				if(angular.isString(invoke) && regInvokes.indexOf(invoke) === -1) {
+				if(angular.isString(invoke) && regInvokes.isNew(namespace, invoke)) {
 					newInvoke = true;
-					regInvokes.push(invoke);
+					regInvokes.push(namespace, invoke);
 				}
 			});
 		} else {
